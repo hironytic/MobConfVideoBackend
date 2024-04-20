@@ -1,0 +1,39 @@
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+    	return request.auth != null && exists(/databases/$(database)/documents/config/private/admins/$(request.auth.uid))
+    }
+
+    function isUser(user) {
+    	return request.auth != null && request.auth.uid == user
+    }
+  
+
+    match /config {
+      match /config {
+        allow read;
+      }
+
+      match /private/admins/{user} {
+        allow read: if isUser(user);
+      }
+    }
+
+    match /conferences/{conference} {
+      allow read;
+    }
+
+    match /events/{event} {
+      allow read;
+    }
+
+    match /events/{event}/requests/{request} {
+      allow read;
+      allow write: if isAdmin()
+    }
+
+    match /sessions/{session} {
+      allow read;
+    }
+  }
+}

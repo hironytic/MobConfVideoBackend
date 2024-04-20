@@ -1,0 +1,10 @@
+{
+  "name": "mobconfvideo-backend",
+  "private": true,
+  "dependencies": {
+    "firebase-tools": "^11.6.0"
+  },
+  "volta": {
+    "node": "16.17.0"
+  }
+}
