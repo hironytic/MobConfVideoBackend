@@ -1,2 +1,2 @@
-export * from './maintainSessionWatched';
-export * from './addRequest';
+export * from "./maintainSessionWatched";
+export * from "./addRequest";

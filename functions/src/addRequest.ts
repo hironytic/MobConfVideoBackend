@@ -1,7 +1,7 @@
-import * as admin from 'firebase-admin';
-import { https } from 'firebase-functions';
-import { CallableContext } from 'firebase-functions/lib/providers/https';
-import app from './app';
+import * as admin from "firebase-admin";
+import {onCall, HttpsError, CallableRequest} from "firebase-functions/v2/https";
+import {logger} from "firebase-functions/v2";
+import app from "./app";
 import Timestamp = admin.firestore.Timestamp;
 
 interface IRequestData {
@@ -41,11 +41,15 @@ interface IAddRequestFromSessionData {
   memo?: string;
 }
 
-export const addRequestFromSession = https.onCall(onAddRequestFromSessionCalled);
-
-async function onAddRequestFromSessionCalled(data: IAddRequestFromSessionData, context: CallableContext): Promise<void> {
+export const addRequestFromSession = onCall(async (
+  {data}: CallableRequest<IAddRequestFromSessionData>,
+): Promise<void> => {
   if (!data.requestKey || !data.sessionId) {
-    throw new https.HttpsError("invalid-argument", undefined, errorInvalidParameter);
+    throw new HttpsError(
+      "invalid-argument",
+      "Either a request key or session id must be specified.",
+      errorInvalidParameter
+    );
   }
 
   const db = app.firestore();
@@ -53,15 +57,25 @@ async function onAddRequestFromSessionCalled(data: IAddRequestFromSessionData, c
 
   const sessionRef = await db.collection("sessions").doc(data.sessionId).get();
   if (!sessionRef.exists) {
-    console.log(`session not found: ${data.sessionId}`);
-    throw new https.HttpsError("not-found", undefined, errorInvalidSession);
+    logger.info(`session not found: ${data.sessionId}`);
+    throw new HttpsError(
+      "not-found",
+      "Session not found.",
+      errorInvalidSession);
   }
   const session = sessionRef.data() as ISessionData;
 
-  const conferenceRef = await db.collection("conferences").doc(session.conferenceId).get();
+  const conferenceRef = await db
+    .collection("conferences")
+    .doc(session.conferenceId)
+    .get();
   if (!conferenceRef.exists) {
-    console.log(`conference not found: ${session.conferenceId}`);
-    throw new https.HttpsError("internal", undefined, errorInternalError);
+    logger.error(`conference not found: ${session.conferenceId}`);
+    throw new HttpsError(
+      "internal",
+      "Conference not found.",
+      errorInternalError
+    );
   }
   const conference = conferenceRef.data() as IConferenceData;
 
@@ -79,8 +93,12 @@ async function onAddRequestFromSessionCalled(data: IAddRequestFromSessionData, c
     requestData.slide = session.slide;
   }
 
-  await db.collection("events").doc(eventId).collection("requests").add(requestData);
-}
+  await db
+    .collection("events")
+    .doc(eventId)
+    .collection("requests")
+    .add(requestData);
+});
 
 interface IAddRequestWithoutSessionData {
   requestKey: string;
@@ -92,11 +110,14 @@ interface IAddRequestWithoutSessionData {
   memo?: string;
 }
 
-export const addRequestWithoutSession = https.onCall(onAddRequestWithoutSessionCalled);
-
-async function onAddRequestWithoutSessionCalled(data: IAddRequestWithoutSessionData, context: CallableContext): Promise<void> {
+export const addRequestWithoutSession = onCall(async (
+  {data}: CallableRequest<IAddRequestWithoutSessionData>,
+): Promise<void> => {
   if (!data.requestKey || !data.title || !data.conference || !data.video) {
-    throw new https.HttpsError("invalid-argument", undefined, errorInvalidParameter);
+    throw new HttpsError(
+      "invalid-argument",
+      "Either a request key, title, conference, or video must be specified.",
+      errorInvalidParameter);
   }
 
   const db = app.firestore();
@@ -115,23 +136,50 @@ async function onAddRequestWithoutSessionCalled(data: IAddRequestWithoutSessionD
     requestData.slide = data.slide;
   }
 
-  await db.collection("events").doc(eventId).collection("requests").add(requestData);
-}
+  await db
+    .collection("events")
+    .doc(eventId)
+    .collection("requests")
+    .add(requestData);
+});
 
-async function getEventIdForRequestKey(db: FirebaseFirestore.Firestore, requestKey: string): Promise<string> {
+/**
+ * Retrieve the event ID for the given request key.
+ * @param {FirebaseFirestore.Firestore} db database
+ * @param {string} requestKey request key
+ * @return {Promise<string>} event ID
+ */
+async function getEventIdForRequestKey(
+  db: FirebaseFirestore.Firestore,
+  requestKey: string,
+): Promise<string> {
   const privateRef = await db.collection("config").doc("private").get();
   if (!privateRef.exists) {
-    console.log("config/private not found");
-    throw new https.HttpsError("failed-precondition", undefined, errorInvalidRequestkey);
+    logger.error("config/private not found");
+    throw new HttpsError(
+      "failed-precondition",
+      "Configuration (config/private) not found in database.",
+      errorInvalidRequestkey
+    );
   }
-  const requestKeys = privateRef.data()["requestKeys"] as { [key: string]: string };
+  const requestKeys = privateRef.data()
+    ?.["requestKeys"] as { [key: string]: string } | undefined;
   if (requestKeys === undefined) {
-    console.log("requestKeys not found");
-    throw new https.HttpsError("failed-precondition", undefined, errorInvalidRequestkey);
-  }  
+    logger.error("requestKeys not found");
+    throw new HttpsError(
+      "failed-precondition",
+      "Configuration (config/private/requestKeys) not found in database.",
+      errorInvalidRequestkey
+    );
+  }
   const eventId = requestKeys[requestKey];
   if (eventId === undefined) {
-    throw new https.HttpsError("failed-precondition", undefined, errorInvalidRequestkey);
+    logger.info("invalid request key");
+    throw new HttpsError(
+      "permission-denied",
+      "Invalid request key.",
+      errorInvalidRequestkey
+    );
   }
 
   return eventId;
